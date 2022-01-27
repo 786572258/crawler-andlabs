@@ -4,7 +4,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/andlabs/ui"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -19,10 +21,15 @@ var (
 	referImg = "img2.woyaogexing.com"
 	isSetUserAgent = false
 	referer = ""
+	outputEntry = &ui.MultilineEntry{}
 )
 
 func downloadUrl(url string) ([]byte, error) {
 
+	if strings.Contains(url, "//") == true && strings.Contains(url, "http") == false {
+		url = "https:" + url
+	}
+	//url = "https://img-pre.ivsky.com/img/tupian/pre/202107/15/wenquan-001.jpg"
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -35,7 +42,11 @@ func downloadUrl(url string) ([]byte, error) {
 		req.Header.Add("Referer", referer)
 	}
 	response, err := client.Do(req)
-	defer response.Body.Close()
+	defer func() {
+		if response != nil {
+			response.Body.Close()
+		}
+	}()
 
 	if err != nil {
 		return nil, err
@@ -58,7 +69,7 @@ func CreateMutiDir(filePath string) error {
 	if !isExist(filePath) {
 		err := os.MkdirAll(filePath, os.ModePerm)
 		if err != nil {
-			fmt.Println("创建文件夹失败,error info:", err)
+			log.Println("创建文件夹失败,error info:", err)
 			return err
 		}
 		return err
@@ -93,7 +104,7 @@ func downloadImg(url string, wg *sync.WaitGroup) {
 	dirPath := "./imgs/"+date+"/"
 	err = CreateMutiDir(dirPath)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 		return
 	}
 	err = ioutil.WriteFile(dirPath+fileName, content, 0777)
@@ -106,7 +117,7 @@ func downloadImg(url string, wg *sync.WaitGroup) {
 func test(i int, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	fmt.Println("结果：", i)
+	log.Println("结果：", i)
 }
 
 func Start() {
@@ -114,26 +125,46 @@ func Start() {
 }
 
 /*
---rulePageUrl=https://www.tupianzj.com/mingxing/xiezhen/20130730/3492_[99,1000].html
---regularImgUrl=https://img.lianzhixiu.com/uploads/.*?.jpg
+-rulePageUrl=https://www.tupianzj.com/mingxing/xiezhen/20130730/3492_[99,1000].html
+-regularImgUrl=https://img.lianzhixiu.com/uploads/.*?.jpg
 */
-func parseWalkParams(params string) {
-	reg := regexp.MustCompile("--rulePageUrl=(.*)[\\s]+")
-	search := reg.FindAllSubmatch([]byte(params), -1)
-	//if len(search) == 0 {
-	//	//fmt.Println(pageUrl + "未找到规则图片")
-	//	return
-	//}
-	rulePageUrl := ""
-	if len(search) > 0 {
-		rulePageUrl = strings.Trim(string(search[0][1])," ")
+func parseAndlabsParams(params string) {
+	ruleImgUrl := parseAndlabsParam("ruleImgUrl", params)
+	rulePageUrl := parseAndlabsParam("rulePageUrl", params)
+	regularImgUrl := parseAndlabsParam("regularImgUrl", params)
+	c := false
+	if parseAndlabsParam("c", params) != "" {
+		c = true
 	}
-	fmt.Println(rulePageUrl)
+	ua := false
+	if parseAndlabsParam("ua", params) != "" {
+		ua = true
+	}
+	r := parseAndlabsParam("r", params)
+	run(ruleImgUrl,rulePageUrl, regularImgUrl, c, ua, r)
+
+}
+
+func parseAndlabsParam(key string, params string) string {
+	params = params + " "
+	reg := regexp.MustCompile("-"+key+"=(.*)[\\s]+")
+	search := reg.FindAllSubmatch([]byte(params), -1)
+	value := ""
+	if len(search) > 0 {
+		value = strings.Trim(string(search[0][1])," ")
+	}
+	return value
 }
 
 func StartByWalk(params string) {
-	fmt.Println(params)
-	parseWalkParams(params)
+	log.Println(params)
+	parseAndlabsParams(params)
+}
+
+func StartByAndlabs(params string, outputEntryTemp *ui.MultilineEntry) {
+	outputEntry = outputEntryTemp
+	log.Println(params)
+	parseAndlabsParams(params)
 }
 
 func run(ruleImgUrl, rulePageUrl, regularImgUrl string, custom bool, ua bool, r string) {
@@ -143,19 +174,19 @@ func run(ruleImgUrl, rulePageUrl, regularImgUrl string, custom bool, ua bool, r 
 	if ruleImgUrl != "" {
 		wg.Add(1)
 		crawlByRuleImgUrl(ruleImgUrl, &wg)
-		fmt.Println("done.")
+		log.Println("done.")
 		return
 	}
 
 	if rulePageUrl != "" {
 		if regularImgUrl == "" {
-			fmt.Println("缺少正则图片url.")
+			log.Println("缺少正则图片url.")
 			return
 		}
 	}
 	if regularImgUrl != "" {
 		if rulePageUrl == "" {
-			fmt.Println("缺少规则页面url.")
+			log.Println("缺少规则页面url.")
 			return
 		}
 	}
@@ -167,7 +198,7 @@ func run(ruleImgUrl, rulePageUrl, regularImgUrl string, custom bool, ua bool, r 
 		//正则图片url
 		//regularImgUrl := "https://img.lianzhixiu.com/uploads/allimg/.*?.jpg"
 		crawlByPage(rulePageUrl, regularImgUrl)
-		fmt.Println("done.")
+		log.Println("done.")
 		return
 	}
 
@@ -180,18 +211,18 @@ func run(ruleImgUrl, rulePageUrl, regularImgUrl string, custom bool, ua bool, r 
 		}
 		wg.Wait()
 
-		fmt.Println("")
-		fmt.Println("done.")
+		log.Println("")
+		log.Println("done.")
 		//time.Sleep(time.Second * 100)
 		return
 	}
 
-	fmt.Println("请指定参数执行")
+	log.Println("请指定参数执行")
 
 }
 
 func test2(url string, wg *sync.WaitGroup) {
-	fmt.Println("执行。")
+	log.Println("执行。")
 	wg.Done()
 }
 
@@ -201,7 +232,7 @@ func crawlByPage(rulePageUrl string, regularImgUrl string) {
 	var wg sync.WaitGroup
 	first, last, numLength, count, err := parseRuleUrl(rulePageUrl)
 	if err != nil {
-		fmt.Println(rulePageUrl+"解析错误：", err)
+		log.Println(rulePageUrl+"解析错误：", err)
 		return
 	}
 	if count == 0 {
@@ -214,7 +245,7 @@ func crawlByPage(rulePageUrl string, regularImgUrl string) {
 	for i := first; i<=last; i++ {
 		re3, err := regexp.Compile("\\[.*?\\]")
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 			continue
 		}
 		ruleNum := fmt.Sprintf("%0"+strconv.Itoa(numLength)+"d", i)
@@ -229,13 +260,14 @@ func downloadImgBySearchPage(pageUrl, regularImgUrl string, wwg *sync.WaitGroup)
 	defer wwg.Done()
 	pageContent, err := getPageContent(pageUrl)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
+		//outputEntry.SetText(err.Error())
 		return
 	}
 	reg := regexp.MustCompile(regularImgUrl)
 	search := reg.FindAllSubmatch([]byte(pageContent), -1)
 	if len(search) == 0 {
-		fmt.Println(pageUrl + "未找到规则图片")
+		log.Println(pageUrl + "未找到规则图片")
 		return
 	}
 	var wg sync.WaitGroup
@@ -277,7 +309,7 @@ func crawlByRuleImgUrl(ruleImgUrl string, wwg *sync.WaitGroup) {
 
 	first, last, numLength, count, err := parseRuleUrl(ruleImgUrl)
 	if err != nil {
-		fmt.Println(ruleImgUrl+"解析错误：", err)
+		log.Println(ruleImgUrl+"解析错误：", err)
 		return
 	}
 	if count == 0 {
@@ -293,7 +325,7 @@ func crawlByRuleImgUrl(ruleImgUrl string, wwg *sync.WaitGroup) {
 	for i := first; i<=last; i++ {
 		re3, err := regexp.Compile("\\[.*?\\]");
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 		}
 		ruleNum := fmt.Sprintf("%0"+strconv.Itoa(numLength)+"d", i)
 		imgUrl := re3.ReplaceAllString(ruleImgUrl, ruleNum);
@@ -342,18 +374,18 @@ func parseRuleUrl(ruleUrl string) (first int, last int, numLength int, count int
 func CrawlByCustom(wwg *sync.WaitGroup) {
 	defer wwg.Done()
 
-	first := 0
-	last := 12
+	first := 1
+	last := 1
 	var wg sync.WaitGroup
 	//baseImgUrl = "https://img-pre.ivsky.com/img/tupian/pre/202107/15/wenquan-007.jpg"
-	baseImgUrl := "https://img-pre.ivsky.com/img/tupian/pre/202107/15/"
-	referImg := ""
+	//baseImgUrl := "https://img-pre.ivsky.com/img/tupian/pre/202107/15/"
+	baseImgUrl := "https://pic-image.yesky.com//uploadImages/2017/325/34/M65CO3Z6FKYG.jpg"
 	count := (last - first)+1
-	fmt.Println("调试：", baseImgUrl, referImg)
+	log.Println("调试：", baseImgUrl)
 	wg.Add(count)
 	for i := first; i<=last; i++ {
-		imgUrl := baseImgUrl + "wenquan-0"+strconv.Itoa(i)+".jpg"
-		go downloadImg(imgUrl, &wg)
+		//imgUrl := baseImgUrl + "wenquan-0"+strconv.Itoa(i)+".jpg"
+		go downloadImg(baseImgUrl, &wg)
 		//go test(i, &wg)
 	}
 	wg.Wait()
